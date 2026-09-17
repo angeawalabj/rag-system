@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg:       #030712;   /* gray-950 */
+  --surface:  #111827;   /* gray-900 */
+  --border:   #1f2937;   /* gray-800 */
+  --accent:   #4ade80;   /* green-400 — même palette que le blog */
+  --accent-2: #818cf8;   /* indigo-400 — sources */
+}
+
+/* Scrollbar discrète */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+
+/* Cursor clignotant pour le streaming */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.cursor-blink::after {
+  content: "▋";
+  animation: blink 1s step-end infinite;
+  color: var(--accent);
+  margin-left: 1px;
+}

@@ -1,0 +1,150 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Règles d'alerte Prometheus — RAG System
+# Référence : docs/adr/ADR-0007-observability.md
+# ─────────────────────────────────────────────────────────────────────────────
+
+groups:
+
+  - name: rag-query-slo
+    rules:
+
+      - alert: RAGHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(rag_query_duration_seconds_bucket[5m])
+          ) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: rag-api
+        annotations:
+          summary: "Latence p95 RAG > 10s"
+          description: >-
+            La latence p95 des requêtes RAG est de {{ $value | humanizeDuration }},
+            au-dessus du SLO de 8s. Vérifier la charge Ollama et Qdrant.
+
+      - alert: RAGHighErrorRate
+        expr: |
+          (
+            sum(rate(rag_queries_total{cache_hit="false"}[5m]))
+            -
+            sum(rate(rag_chunks_retrieved_count[5m]))
+          ) / sum(rate(rag_queries_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: rag-api
+        annotations:
+          summary: "Taux d'erreur RAG > 5%"
+          description: >-
+            Plus de 5% des requêtes RAG échouent depuis 5 minutes.
+            Vérifier les logs rag-api et la connectivité Ollama/Qdrant.
+
+      - alert: CacheHitRateLow
+        expr: |
+          sum(rate(rag_queries_total{cache_hit="true"}[30m]))
+          /
+          sum(rate(rag_queries_total[30m])) < 0.10
+        for: 30m
+        labels:
+          severity: info
+          service: rag-api
+        annotations:
+          summary: "Taux de cache hit < 10%"
+          description: >-
+            Le cache RAG est peu utilisé ({{ $value | humanizePercentage }}).
+            Normal si les questions sont très variées, sinon vérifier le TTL.
+
+  - name: rag-ingestion-slo
+    rules:
+
+      - alert: IngestionQueueBacklog
+        expr: rag_ingestion_queue_pending > 50
+        for: 10m
+        labels:
+          severity: warning
+          service: ingestion
+        annotations:
+          summary: "File d'attente d'ingestion encombrée"
+          description: >-
+            {{ $value }} jobs en attente depuis plus de 10 minutes.
+            Envisager de scaler le worker d'ingestion.
+
+      - alert: IngestionFailureSpike
+        expr: |
+          increase(rag_ingestion_documents_total{status="failed"}[5m]) > 3
+        for: 0m
+        labels:
+          severity: warning
+          service: ingestion
+        annotations:
+          summary: "Pic d'échecs d'ingestion"
+          description: >-
+            Plus de 3 documents ont échoué à l'ingestion en 5 minutes.
+            Vérifier les logs : docker compose logs ingestion
+
+      - alert: IngestionSlow
+        expr: |
+          histogram_quantile(0.95,
+            rate(rag_ingestion_duration_seconds_bucket[10m])
+          ) > 60
+        for: 10m
+        labels:
+          severity: warning
+          service: ingestion
+        annotations:
+          summary: "Ingestion lente (p95 > 60s)"
+          description: >-
+            La durée d'ingestion p95 est de {{ $value | humanizeDuration }}.
+            Vérifier la latence d'embedding Ollama.
+
+  - name: rag-infra-availability
+    rules:
+
+      - alert: QdrantDown
+        expr: up{job="qdrant"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: qdrant
+        annotations:
+          summary: "Qdrant injoignable"
+          description: "Le scrape Prometheus de Qdrant échoue depuis 1 minute."
+
+      - alert: IngestionServiceDown
+        expr: up{job="ingestion"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: ingestion
+        annotations:
+          summary: "Service d'ingestion injoignable"
+          description: "Le scrape Prometheus du service ingestion échoue depuis 1 minute."
+
+      - alert: RAGAPIDown
+        expr: up{job="rag-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: rag-api
+        annotations:
+          summary: "RAG API injoignable"
+          description: "Le scrape Prometheus du RAG API échoue depuis 1 minute."
+
+  - name: rag-resource-usage
+    rules:
+
+      - alert: HighMemoryUsageOllama
+        expr: |
+          container_memory_usage_bytes{name="rag-system-ollama-1"}
+          /
+          container_spec_memory_limit_bytes{name="rag-system-ollama-1"} > 0.90
+        for: 5m
+        labels:
+          severity: warning
+          service: ollama
+        annotations:
+          summary: "Ollama proche de sa limite mémoire"
+          description: >-
+            Ollama utilise {{ $value | humanizePercentage }} de sa limite mémoire.
+            Risque d'OOM kill — envisager d'augmenter OLLAMA_MEM_LIMIT.

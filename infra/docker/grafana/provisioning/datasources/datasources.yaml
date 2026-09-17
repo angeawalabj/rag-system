@@ -1,0 +1,31 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Grafana — provisioning des datasources
+# Monté dans /etc/grafana/provisioning/datasources/
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: 1
+
+datasources:
+
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    url: http://prometheus:9090
+    isDefault: true
+    access: proxy
+    editable: false
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
+
+  - name: Jaeger
+    type: jaeger
+    uid: jaeger
+    url: http://jaeger:16686
+    access: proxy
+    editable: false
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+      nodeGraph:
+        enabled: true

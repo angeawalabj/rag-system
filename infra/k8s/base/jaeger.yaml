@@ -1,0 +1,67 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+  namespace: rag-system
+  labels:
+    app: jaeger
+spec:
+  ports:
+    - name: ui
+      port: 16686
+    - name: collector-grpc
+      port: 14250
+    - name: otlp-grpc
+      port: 4317
+  selector:
+    app: jaeger
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-collector
+  namespace: rag-system
+spec:
+  ports:
+    - name: grpc
+      port: 14250
+  selector:
+    app: jaeger
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: rag-system
+  labels:
+    app: jaeger
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: jaeger }
+  template:
+    metadata:
+      labels: { app: jaeger }
+    spec:
+      containers:
+        - name: jaeger
+          image: jaegertracing/all-in-one:1.57
+          ports:
+            - containerPort: 16686   # UI
+            - containerPort: 14250   # collector gRPC
+            - containerPort: 4317    # OTLP gRPC
+          env:
+            - name: COLLECTOR_OTLP_ENABLED
+              value: "true"
+            - name: SPAN_STORAGE_TYPE
+              value: memory
+            - name: MEMORY_MAX_TRACES
+              value: "10000"
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
+          readinessProbe:
+            httpGet: { path: /, port: 16686 }
+            initialDelaySeconds: 5
+            periodSeconds: 10

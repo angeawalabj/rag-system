@@ -1,0 +1,292 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# RAG System — Docker Compose v1
+# Usage : docker compose up -d
+# Prérequis : Docker >= 24, 10 GB RAM disponible
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: rag-system
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-restart: &restart-policy
+  restart: unless-stopped
+
+x-healthcheck-defaults: &hc-defaults
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+
+services:
+
+  # ─── Vector store ───────────────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:v1.9.2
+    <<: *restart-policy
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"     # REST + gRPC
+      - "6334:6334"                       # gRPC uniquement
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__LOG_LEVEL: INFO
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+    logging: *default-logging
+
+  # ─── Base de données métadonnées ────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    <<: *restart-policy
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d:ro
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-ragdb}
+      POSTGRES_USER:     ${POSTGRES_USER:-raguser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpass}
+      PGDATA:            /var/lib/postgresql/data/pgdata
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-raguser} -d ${POSTGRES_DB:-ragdb}"]
+    logging: *default-logging
+
+  # ─── Cache + Queue ─────────────────────────────────────────────────────────
+  redis:
+    image: redis:7.2-alpine
+    <<: *restart-policy
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD", "redis-cli", "ping"]
+    logging: *default-logging
+
+  # ─── LLM + Embedding runtime ────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:0.3.6
+    <<: *restart-policy
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    mem_limit: ${OLLAMA_MEM_LIMIT:-6g}
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+    logging: *default-logging
+
+  # Pull des modèles au démarrage (one-shot)
+  ollama-init:
+    image: ollama/ollama:0.3.6
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: >
+      sh -c "
+        ollama pull nomic-embed-text &&
+        ollama pull ${OLLAMA_LLM_MODEL:-llama3.2:3b} &&
+        echo 'Models ready'
+      "
+    restart: "no"
+
+  # ─── Service d'ingestion ─────────────────────────────────────────────────────
+  ingestion:
+    build:
+      context: ../../services/ingestion
+      dockerfile: Dockerfile
+      target: production
+    <<: *restart-policy
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    env_file: ../../.env
+    environment:
+      SERVICE_NAME:        ingestion
+      QDRANT_URL:          http://qdrant:6333
+      POSTGRES_DSN:        postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpass}@postgres:5432/${POSTGRES_DB:-ragdb}
+      REDIS_URL:           redis://redis:6379/0
+      OLLAMA_BASE_URL:     http://ollama:11434
+      EMBED_MODEL:         ${EMBED_MODEL:-nomic-embed-text}
+      CHUNK_SIZE:          ${CHUNK_SIZE:-512}
+      CHUNK_OVERLAP:       ${CHUNK_OVERLAP:-64}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME:   ingestion
+      LOG_LEVEL:           ${LOG_LEVEL:-INFO}
+    volumes:
+      - upload_tmp:/app/uploads
+    ports:
+      - "${INGESTION_PORT:-8001}:8001"
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+    logging: *default-logging
+
+  # ─── API RAG ────────────────────────────────────────────────────────────────
+  rag-api:
+    build:
+      context: ../../services/api
+      dockerfile: Dockerfile
+      target: production
+    <<: *restart-policy
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    env_file: ../../.env
+    environment:
+      SERVICE_NAME:        rag-api
+      QDRANT_URL:          http://qdrant:6333
+      POSTGRES_DSN:        postgresql://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpass}@postgres:5432/${POSTGRES_DB:-ragdb}
+      REDIS_URL:           redis://redis:6379/1
+      OLLAMA_BASE_URL:     http://ollama:11434
+      EMBED_MODEL:         ${EMBED_MODEL:-nomic-embed-text}
+      LLM_MODEL:           ${OLLAMA_LLM_MODEL:-llama3.2:3b}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME:   rag-api
+      LOG_LEVEL:           ${LOG_LEVEL:-INFO}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+    logging: *default-logging
+
+  # ─── Frontend ───────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ../../services/frontend
+      dockerfile: Dockerfile
+    <<: *restart-policy
+    depends_on:
+      - rag-api
+      - ingestion
+    environment:
+      NEXT_PUBLIC_API_URL:       http://localhost:${API_PORT:-8000}
+      NEXT_PUBLIC_INGEST_URL:    http://localhost:${INGESTION_PORT:-8001}
+      RAG_API_URL:               http://rag-api:8000
+      INGEST_API_URL:            http://ingestion:8001
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+    logging: *default-logging
+
+  # ─── Observabilité — OpenTelemetry Collector ────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.100.0
+    <<: *restart-policy
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # Prometheus metrics du collector lui-même
+    depends_on:
+      - jaeger
+      - prometheus
+    logging: *default-logging
+
+  # ─── Tracing ────────────────────────────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    <<: *restart-policy
+    ports:
+      - "16686:16686"   # UI Jaeger
+      - "14250:14250"   # gRPC collector
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      SPAN_STORAGE_TYPE:      memory
+      MEMORY_MAX_TRACES:      10000
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:16686"]
+    logging: *default-logging
+
+  # ─── Métriques ──────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    <<: *restart-policy
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - ./alert-rules.yaml:/etc/prometheus/alert-rules.yaml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:9090/-/healthy"]
+    logging: *default-logging
+
+  # ─── Dashboards ─────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    <<: *restart-policy
+    depends_on:
+      - prometheus
+      - jaeger
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER:     ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED:  "false"
+      GF_SERVER_ROOT_URL:         http://localhost:${GRAFANA_PORT:-3001}
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+    logging: *default-logging
+
+# ─── Volumes ──────────────────────────────────────────────────────────────────
+volumes:
+  qdrant_data:
+  postgres_data:
+  redis_data:
+  ollama_data:
+  grafana_data:
+  prometheus_data:
+  upload_tmp:
+
+# ─── Réseau ───────────────────────────────────────────────────────────────────
+networks:
+  default:
+    name: rag-network
+    driver: bridge

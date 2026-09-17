@@ -1,0 +1,87 @@
+{{- if .Values.ingestion.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rag-system.fullname" . }}-ingestion
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-system.ingestion.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.ingestion.service.type }}
+  ports:
+    - port: {{ .Values.ingestion.service.port }}
+      targetPort: 8001
+      name: http
+  selector:
+    {{- include "rag-system.ingestion.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rag-system.fullname" . }}-ingestion
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-system.ingestion.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.ingestion.replicas }}
+  selector:
+    matchLabels:
+      {{- include "rag-system.ingestion.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rag-system.ingestion.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: ingestion
+          image: {{ .Values.ingestion.image.repository }}:{{ .Values.ingestion.image.tag }}
+          imagePullPolicy: {{ .Values.ingestion.image.pullPolicy }}
+          ports:
+            - containerPort: 8001
+              name: http
+          env:
+            - name: SERVICE_NAME
+              value: ingestion
+            - name: QDRANT_URL
+              value: {{ include "rag-system.qdrantUrl" . }}
+            - name: REDIS_URL
+              value: {{ include "rag-system.redisUrl" . }}
+            - name: OLLAMA_BASE_URL
+              value: {{ include "rag-system.ollamaUrl" . }}
+            - name: EMBED_MODEL
+              value: {{ .Values.ollama.embeddingModel | quote }}
+            - name: CHUNK_SIZE
+              value: {{ .Values.ingestion.chunking.chunkSize | quote }}
+            - name: CHUNK_OVERLAP
+              value: {{ .Values.ingestion.chunking.chunkOverlap | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ include "rag-system.otelEndpoint" . }}
+            - name: OTEL_SERVICE_NAME
+              value: ingestion
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ingestion.existingSecret }}
+                  key: {{ .Values.ingestion.secretKeys.postgresDsn }}
+          resources:
+            {{- toYaml .Values.ingestion.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /health, port: 8001 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: 8001 }
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          volumeMounts:
+            - name: upload-tmp
+              mountPath: /app/uploads
+      volumes:
+        - name: upload-tmp
+          emptyDir:
+            sizeLimit: 2Gi
+{{- end }}

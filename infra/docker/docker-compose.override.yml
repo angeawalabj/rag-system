@@ -1,0 +1,82 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# docker-compose.override.yml — Surcharges pour le développement local
+#
+# Activé automatiquement par docker compose (pas besoin de -f)
+# Désactiver : docker compose -f infra/docker/docker-compose.yml up
+#
+# Fonctionnalités :
+#   - Hot-reload Python via watchfiles (rechargement à chaque modification .py)
+#   - Hot-reload Next.js natif (next dev)
+#   - Montage du code source en volume (pas de rebuild image pour chaque modif)
+#   - Ports debug exposés
+#   - Log level DEBUG
+#   - Seed DB automatique au démarrage
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: rag-system
+
+services:
+
+  # ─── Ingestion — hot-reload Python ─────────────────────────────────────────
+  ingestion:
+    build:
+      target: development          # stage watchfiles
+    volumes:
+      - ../../services/ingestion/src:/app/src:ro   # code monté en lecture seule
+    environment:
+      LOG_LEVEL: DEBUG
+      WATCHFILES_FORCE_POLLING: "true"   # nécessaire sur certains systèmes de fichiers
+    command: ["python", "-m", "watchfiles", "uvicorn src.main:app --host 0.0.0.0 --port 8001 --reload", "src"]
+
+  # ─── RAG API — hot-reload Python ──────────────────────────────────────────
+  rag-api:
+    build:
+      target: development
+    volumes:
+      - ../../services/api/src:/app/src:ro
+    environment:
+      LOG_LEVEL: DEBUG
+    command: ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "src"]
+
+  # ─── Frontend — next dev (hot-reload natif) ────────────────────────────────
+  frontend:
+    build:
+      target: development
+    volumes:
+      - ../../services/frontend:/app
+      - /app/node_modules          # préserve les node_modules du conteneur
+      - /app/.next                 # préserve le cache Next.js
+    environment:
+      NODE_ENV: development
+      NEXT_TELEMETRY_DISABLED: "1"
+    command: ["npm", "run", "dev"]
+    ports:
+      - "3000:3000"
+
+  # ─── PostgreSQL — seed de données de dev ──────────────────────────────────
+  postgres:
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../../infra/docker/init-db:/docker-entrypoint-initdb.d:ro
+      - ../../infra/docker/dev-seed:/docker-entrypoint-initdb.d/seed:ro
+
+  # ─── Jaeger — persistance en mémoire augmentée pour le dev ────────────────
+  jaeger:
+    environment:
+      MEMORY_MAX_TRACES: "50000"   # plus de traces en dev
+
+  # ─── Prometheus — intervalle de scrape réduit pour le dev ─────────────────
+  prometheus:
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=2d    # rétention courte en dev
+      - --web.enable-lifecycle
+
+  # ─── Grafana — anonymous auth pour le dev (plus de login) ─────────────────
+  grafana:
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED:  "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_LOG_LEVEL:               warn

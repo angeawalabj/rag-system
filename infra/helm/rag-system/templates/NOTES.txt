@@ -1,0 +1,66 @@
+🧠 RAG System installé avec succès !
+
+Release : {{ .Release.Name }}
+Namespace : {{ .Release.Namespace }}
+Version : {{ .Chart.AppVersion }}
+
+━━━ Accès aux services ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{{- if .Values.ingress.enabled }}
+
+  🌐 Frontend : https://{{ .Values.ingress.host }}
+  📡 RAG API  : https://{{ .Values.ingress.host }}/api/rag/docs
+
+{{- else }}
+
+  En attendant de configurer un Ingress, accédez aux services via port-forward :
+
+  # Frontend
+  kubectl port-forward -n {{ .Release.Namespace }} \
+    svc/{{ include "rag-system.fullname" . }}-frontend 3000:3000
+  → http://localhost:3000
+
+  # RAG API docs
+  kubectl port-forward -n {{ .Release.Namespace }} \
+    svc/{{ include "rag-system.fullname" . }}-rag-api 8000:8000
+  → http://localhost:8000/docs
+
+  # Grafana
+  kubectl port-forward -n {{ .Release.Namespace }} \
+    svc/{{ .Release.Name }}-grafana 3001:80
+  → http://localhost:3001  (admin / {{ .Values.grafana.adminPassword }})
+
+  # Jaeger UI
+  kubectl port-forward -n {{ .Release.Namespace }} \
+    svc/{{ .Release.Name }}-jaeger-query 16686:16686
+  → http://localhost:16686
+
+{{- end }}
+
+━━━ Premiers pas ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. Attendre qu'Ollama ait fini de télécharger les modèles (peut prendre 10-15 min) :
+     kubectl logs -n {{ .Release.Namespace }} \
+       -l app.kubernetes.io/component=ollama -f
+
+  2. Ingérer un document test :
+     curl -X POST http://localhost:8001/ingest \
+       -F "file=@mon-document.pdf" \
+       -F "collection=documents"
+
+  3. Poser une question :
+     curl -X POST http://localhost:8000/query \
+       -H "Content-Type: application/json" \
+       -d '{"question": "Quel est le sujet de ce document ?", "collection": "documents"}'
+
+  4. Lancer les tests Helm :
+     helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+━━━ Gestion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Mise à jour : helm upgrade {{ .Release.Name }} ./helm/rag-system -f my-values.yaml
+  Désinstaller : helm uninstall {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+  ⚠️  Les PersistentVolumeClaims (données Qdrant, Ollama, PostgreSQL) ne sont
+      PAS supprimés par helm uninstall. Pour tout nettoyer :
+      kubectl delete pvc --all -n {{ .Release.Namespace }}

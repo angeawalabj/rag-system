@@ -1,0 +1,261 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# RAG System — Helm values
+# Surcharger avec : helm install rag-system ./helm/rag-system -f my-values.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─── Global ───────────────────────────────────────────────────────────────────
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ─── Ollama (LLM + embedding) ─────────────────────────────────────────────────
+ollama:
+  enabled: true
+  image:
+    repository: ollama/ollama
+    tag: "0.3.6"
+    pullPolicy: IfNotPresent
+
+  # Modèles à charger au démarrage (init container)
+  model: "llama3.2:3b"            # LLM principal
+  embeddingModel: "nomic-embed-text"  # modèle d'embedding
+
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: ""
+
+  resources:
+    requests:
+      cpu: "1"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+
+  # GPU optionnel — décommenter si le cluster a des nodes GPU
+  # nodeSelector:
+  #   gpu: "true"
+  # tolerations:
+  #   - key: nvidia.com/gpu
+  #     operator: Exists
+  #     effect: NoSchedule
+
+# ─── Ingestion Service ────────────────────────────────────────────────────────
+ingestion:
+  enabled: true
+  image:
+    repository: ghcr.io/ton-user/rag-ingestion
+    tag: "latest"
+    pullPolicy: Always
+
+  replicas: 2
+
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: 500m, memory: 1Gi }
+
+  service:
+    type: ClusterIP
+    port: 8001
+
+  # Clé du Secret k8s contenant POSTGRES_DSN
+  existingSecret: "rag-secrets"
+  secretKeys:
+    postgresDsn: POSTGRES_DSN
+
+  chunking:
+    chunkSize: 512
+    chunkOverlap: 64
+
+# ─── RAG API ─────────────────────────────────────────────────────────────────
+ragApi:
+  enabled: true
+  image:
+    repository: ghcr.io/ton-user/rag-api
+    tag: "latest"
+    pullPolicy: Always
+
+  replicas: 2
+
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: 500m, memory: 1Gi }
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  existingSecret: "rag-secrets"
+  secretKeys:
+    postgresDsn: POSTGRES_DSN
+
+  pipeline:
+    topK: 5
+    scoreThreshold: 0.70
+    cacheTtl: 3600
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# ─── Frontend ─────────────────────────────────────────────────────────────────
+frontend:
+  enabled: true
+  image:
+    repository: ghcr.io/ton-user/rag-frontend
+    tag: "latest"
+    pullPolicy: Always
+
+  replicas: 2
+
+  resources:
+    requests: { cpu: 50m,  memory: 128Mi }
+    limits:   { cpu: 250m, memory: 512Mi }
+
+  service:
+    type: ClusterIP
+    port: 3000
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# ─── Ingress ─────────────────────────────────────────────────────────────────
+ingress:
+  enabled: false
+  className: nginx
+  host: rag.ton-domaine.com
+  tls:
+    enabled: false
+    secretName: rag-tls
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+
+# ─── Qdrant (community chart) ────────────────────────────────────────────────
+qdrant:
+  enabled: true
+  persistence:
+    accessModes: [ReadWriteOnce]
+    size: 10Gi
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits:   { cpu: "1",  memory: 2Gi }
+  # Collection créée par l'ingestion service au démarrage — pas besoin de config ici
+
+# ─── PostgreSQL (Bitnami) ─────────────────────────────────────────────────────
+postgresql:
+  enabled: true
+  auth:
+    database: ragdb
+    existingSecret: "rag-secrets"
+    secretKeys:
+      adminPasswordKey: POSTGRES_PASSWORD
+      userPasswordKey:  POSTGRES_PASSWORD
+    username: raguser
+  primary:
+    persistence:
+      size: 5Gi
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits:   { cpu: 500m, memory: 1Gi }
+    initdb:
+      scripts:
+        01-schema.sql: |
+          -- Inclure le contenu de infra/docker/init-db/01-schema.sql
+          -- Ce placeholder est remplacé par le CI lors du packaging
+
+# ─── Redis (Bitnami) ─────────────────────────────────────────────────────────
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false   # Redis interne non exposé — pas de mot de passe nécessaire
+  master:
+    persistence:
+      size: 1Gi
+    resources:
+      requests: { cpu: 50m,  memory: 128Mi }
+      limits:   { cpu: 250m, memory: 512Mi }
+
+# ─── Observabilité ────────────────────────────────────────────────────────────
+prometheus:
+  enabled: true
+  server:
+    retention: "15d"
+    persistentVolume:
+      size: 20Gi
+  alertmanager:
+    enabled: false   # v1 : alertes visibles dans Prometheus UI seulement
+
+grafana:
+  enabled: true
+  adminUser: admin
+  adminPassword: "change-me"   # override avec existingSecret en prod
+  persistence:
+    enabled: true
+    size: 2Gi
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          uid: prometheus
+          url: http://{{ .Release.Name }}-prometheus-server
+          isDefault: true
+
+otelCollector:
+  enabled: true
+  mode: deployment
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc: { endpoint: "0.0.0.0:4317" }
+          http: { endpoint: "0.0.0.0:4318" }
+    processors:
+      batch: {}
+      memory_limiter:
+        limit_mib: 256
+        check_interval: 5s
+    exporters:
+      otlp/jaeger:
+        endpoint: "{{ .Release.Name }}-jaeger-collector:14250"
+        tls: { insecure: true }
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/jaeger]
+
+jaeger:
+  enabled: true
+  provisionDataStore:
+    cassandra: false
+  allInOne:
+    enabled: true
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits:   { cpu: 500m, memory: 512Mi }
+  storage:
+    type: memory
+  collector:
+    enabled: false
+  query:
+    enabled: false
+  agent:
+    enabled: false

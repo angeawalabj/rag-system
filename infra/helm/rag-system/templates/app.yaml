@@ -1,0 +1,210 @@
+{{/* ──── Frontend ──────────────────────────────────────────────────────────── */}}
+{{- if .Values.frontend.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rag-system.fullname" . }}-frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-system.frontend.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.frontend.service.type }}
+  ports:
+    - port: {{ .Values.frontend.service.port }}
+      targetPort: 3000
+  selector:
+    {{- include "rag-system.frontend.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rag-system.fullname" . }}-frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-system.frontend.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  selector:
+    matchLabels:
+      {{- include "rag-system.frontend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rag-system.frontend.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: frontend
+          image: {{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          ports:
+            - containerPort: 3000
+          env:
+            - name: RAG_API_URL
+              value: "http://{{ include "rag-system.fullname" . }}-rag-api:{{ .Values.ragApi.service.port }}"
+            - name: INGEST_API_URL
+              value: "http://{{ include "rag-system.fullname" . }}-ingestion:{{ .Values.ingestion.service.port }}"
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+{{- if .Values.frontend.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "rag-system.fullname" . }}-frontend
+  namespace: {{ .Release.Namespace }}
+spec:
+  minAvailable: {{ .Values.frontend.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "rag-system.frontend.selectorLabels" . | nindent 6 }}
+{{- end }}
+{{- end }}
+
+---
+{{/* ──── Ollama ─────────────────────────────────────────────────────────────── */}}
+{{- if .Values.ollama.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rag-system.fullname" . }}-ollama
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-system.ollama.labels" . | nindent 4 }}
+spec:
+  ports:
+    - port: 11434
+      targetPort: 11434
+  selector:
+    {{- include "rag-system.ollama.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rag-system.fullname" . }}-ollama
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-system.ollama.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "rag-system.ollama.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rag-system.ollama.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.ollama.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ollama.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: pull-models
+          image: {{ .Values.ollama.image.repository }}:{{ .Values.ollama.image.tag }}
+          command:
+            - sh
+            - -c
+            - |
+              ollama pull {{ .Values.ollama.embeddingModel }} &&
+              ollama pull {{ .Values.ollama.model }} &&
+              echo "Models ready"
+          env:
+            - name: OLLAMA_HOST
+              value: "http://localhost:11434"
+          volumeMounts:
+            - name: ollama-models
+              mountPath: /root/.ollama
+      containers:
+        - name: ollama
+          image: {{ .Values.ollama.image.repository }}:{{ .Values.ollama.image.tag }}
+          imagePullPolicy: {{ .Values.ollama.image.pullPolicy }}
+          ports:
+            - containerPort: 11434
+          resources:
+            {{- toYaml .Values.ollama.resources | nindent 12 }}
+          volumeMounts:
+            - name: ollama-models
+              mountPath: /root/.ollama
+          readinessProbe:
+            httpGet: { path: /api/tags, port: 11434 }
+            initialDelaySeconds: 30
+            periodSeconds: 15
+      volumes:
+        - name: ollama-models
+          {{- if .Values.ollama.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "rag-system.fullname" . }}-ollama-models
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+{{- if .Values.ollama.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "rag-system.fullname" . }}-ollama-models
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.ollama.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.ollama.persistence.size }}
+{{- end }}
+{{- end }}
+
+---
+{{/* ──── Ingress ────────────────────────────────────────────────────────────── */}}
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "rag-system.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-system.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "rag-system.fullname" . }}-frontend
+                port: { number: {{ .Values.frontend.service.port }} }
+          - path: /api/rag
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "rag-system.fullname" . }}-rag-api
+                port: { number: {{ .Values.ragApi.service.port }} }
+          - path: /api/ingest
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "rag-system.fullname" . }}-ingestion
+                port: { number: {{ .Values.ingestion.service.port }} }
+{{- end }}

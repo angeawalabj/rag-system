@@ -1,0 +1,65 @@
+apiVersion: v2
+name: rag-system
+description: >
+  Pipeline RAG distribué avec observabilité complète.
+  Ollama (LLM + embedding local) · Qdrant (vector store) ·
+  FastAPI (retrieve → augment → generate) · Next.js (chat UI) ·
+  OpenTelemetry · Prometheus · Grafana.
+
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+keywords:
+  - rag
+  - llm
+  - ollama
+  - qdrant
+  - vector-search
+  - ai
+
+home: https://github.com/ton-user/rag-system
+sources:
+  - https://github.com/ton-user/rag-system
+
+maintainers:
+  - name: ton-user
+    url: https://github.com/ton-user
+
+# ─── Dépendances community charts ─────────────────────────────────────────────
+dependencies:
+
+  - name: qdrant
+    version: "0.9.1"
+    repository: "https://qdrant.github.io/qdrant-helm"
+    condition: qdrant.enabled
+
+  - name: postgresql
+    version: "15.5.20"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
+
+  - name: redis
+    version: "19.6.1"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled
+
+  - name: prometheus
+    version: "25.21.0"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: prometheus.enabled
+
+  - name: grafana
+    version: "8.0.0"
+    repository: "https://grafana.github.io/helm-charts"
+    condition: grafana.enabled
+
+  - name: opentelemetry-collector
+    version: "0.92.0"
+    repository: "https://open-telemetry.github.io/opentelemetry-helm-charts"
+    condition: otelCollector.enabled
+
+  - name: jaeger
+    version: "3.0.6"
+    repository: "https://jaegertracing.github.io/helm-charts"
+    condition: jaeger.enabled

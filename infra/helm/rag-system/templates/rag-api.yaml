@@ -1,0 +1,138 @@
+{{- if .Values.ragApi.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rag-system.fullname" . }}-rag-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-system.ragApi.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.ragApi.service.type }}
+  ports:
+    - port: {{ .Values.ragApi.service.port }}
+      targetPort: 8000
+      name: http
+  selector:
+    {{- include "rag-system.ragApi.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rag-system.fullname" . }}-rag-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-system.ragApi.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.ragApi.autoscaling.enabled }}
+  replicas: {{ .Values.ragApi.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "rag-system.ragApi.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rag-system.ragApi.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: rag-api
+          image: {{ .Values.ragApi.image.repository }}:{{ .Values.ragApi.image.tag }}
+          imagePullPolicy: {{ .Values.ragApi.image.pullPolicy }}
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: SERVICE_NAME
+              value: rag-api
+            - name: QDRANT_URL
+              value: {{ include "rag-system.qdrantUrl" . }}
+            - name: REDIS_URL
+              value: {{ include "rag-system.redisUrl" . | replace "/0" "/1" }}
+            - name: OLLAMA_BASE_URL
+              value: {{ include "rag-system.ollamaUrl" . }}
+            - name: EMBED_MODEL
+              value: {{ .Values.ollama.embeddingModel | quote }}
+            - name: LLM_MODEL
+              value: {{ .Values.ollama.model | quote }}
+            - name: RAG_TOP_K
+              value: {{ .Values.ragApi.pipeline.topK | quote }}
+            - name: RAG_SCORE_THRESHOLD
+              value: {{ .Values.ragApi.pipeline.scoreThreshold | quote }}
+            - name: CACHE_TTL
+              value: {{ .Values.ragApi.pipeline.cacheTtl | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ include "rag-system.otelEndpoint" . }}
+            - name: OTEL_SERVICE_NAME
+              value: rag-api
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ragApi.existingSecret }}
+                  key: {{ .Values.ragApi.secretKeys.postgresDsn }}
+          resources:
+            {{- toYaml .Values.ragApi.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 20
+            periodSeconds: 30
+
+---
+{{- if .Values.ragApi.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "rag-system.fullname" . }}-rag-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-system.ragApi.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "rag-system.fullname" . }}-rag-api
+  minReplicas: {{ .Values.ragApi.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.ragApi.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.ragApi.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.ragApi.autoscaling.targetMemoryUtilizationPercentage }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 30
+{{- end }}
+
+---
+{{- if .Values.ragApi.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "rag-system.fullname" . }}-rag-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-system.ragApi.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.ragApi.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "rag-system.ragApi.selectorLabels" . | nindent 6 }}
+{{- end }}
+{{- end }}

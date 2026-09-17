@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "rag-system.fullname" . }}-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-system.labels" . | nindent 4 }}
+    helm.sh/chart-test: "true"
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test-runner
+      image: curlimages/curl:8.7.1
+      command:
+        - sh
+        - -c
+        - |
+          set -e
+          INGESTION_URL="http://{{ include "rag-system.fullname" . }}-ingestion:{{ .Values.ingestion.service.port }}"
+          API_URL="http://{{ include "rag-system.fullname" . }}-rag-api:{{ .Values.ragApi.service.port }}"
+          PASS=0; FAIL=0
+
+          check() {
+            local name="$1"; local result="$2"; local expected="$3"
+            if echo "$result" | grep -q "$expected"; then
+              echo "PASS $name"; PASS=$((PASS+1))
+            else
+              echo "FAIL $name — attendu '$expected' dans: $result"; FAIL=$((FAIL+1))
+            fi
+          }
+
+          echo "=== Test 1 : Healthcheck Ingestion ==="
+          R=$(curl -sf "$INGESTION_URL/health" || echo '{"status":"error"}')
+          check "ingestion-health" "$R" '"status":"ok"'
+
+          echo "=== Test 2 : Healthcheck RAG API ==="
+          R=$(curl -sf "$API_URL/health" || echo '{"status":"error"}')
+          check "rag-api-health" "$R" '"status"'
+
+          echo "=== Test 3 : Liste des collections ==="
+          R=$(curl -sf "$API_URL/collections" || echo '[]')
+          check "collections-endpoint" "$R" '\['
+
+          echo "=== Test 4 : Métriques Prometheus - Ingestion ==="
+          R=$(curl -sf "$INGESTION_URL/metrics" || echo '')
+          check "ingestion-metrics" "$R" 'rag_ingestion_documents_total'
+
+          echo "=== Test 5 : Métriques Prometheus - RAG API ==="
+          R=$(curl -sf "$API_URL/metrics" || echo '')
+          check "rag-api-metrics" "$R" 'rag_queries_total'
+
+          echo ""
+          echo "Résultat : $PASS réussis / $((PASS+FAIL)) tests"
+          [ $FAIL -eq 0 ] || exit 1

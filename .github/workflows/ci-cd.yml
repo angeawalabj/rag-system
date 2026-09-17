@@ -1,0 +1,205 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# .github/workflows/ci-cd.yml
+# CI : lint + tests unitaires (Ollama mocké)
+# CD : build images Docker, push GHCR, deploy Railway (v1) + k8s (v2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
+
+jobs:
+
+  # ─── Lint + test Python ──────────────────────────────────────────────────────
+  test-python:
+    name: Test Python services
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install test deps (ingestion)
+        run: pip install -r services/ingestion/requirements.txt pytest pytest-asyncio
+
+      - name: Run ingestion tests
+        run: pytest services/ingestion/tests/ -v
+        env:
+          # Tests mockent Ollama et Qdrant — pas besoin des services réels
+          OLLAMA_BASE_URL: http://localhost:11434
+          QDRANT_URL:      http://localhost:6333
+          POSTGRES_DSN:    postgresql+asyncpg://user:pass@localhost/test
+          REDIS_URL:       redis://localhost:6379/0
+
+      - name: Install test deps (api)
+        run: pip install -r services/api/requirements.txt pytest pytest-asyncio
+
+      - name: Run API tests
+        run: pytest services/api/tests/ -v
+        env:
+          OLLAMA_BASE_URL: http://localhost:11434
+          QDRANT_URL:      http://localhost:6333
+          REDIS_URL:       redis://localhost:6379/1
+
+  # ─── Lint + type-check TypeScript ────────────────────────────────────────────
+  test-frontend:
+    name: Test Frontend TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: services/frontend/package-lock.json
+
+      - name: Install deps
+        run: cd services/frontend && npm ci
+
+      - name: Type check
+        run: cd services/frontend && npx tsc --noEmit
+
+      - name: Build
+        run: cd services/frontend && npm run build
+
+  # ─── Build & push Docker images ──────────────────────────────────────────────
+  build-images:
+    name: Build Docker images
+    runs-on: ubuntu-latest
+    needs: [test-python, test-frontend]
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        service:
+          - { name: rag-ingestion, context: services/ingestion }
+          - { name: rag-api,       context: services/api }
+          - { name: rag-frontend,  context: services/frontend }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.service.context }}
+          target: production
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+  # ─── Deploy Railway (v1 Docker Compose demo) ─────────────────────────────────
+  deploy-railway:
+    name: Deploy Railway (v1 demo)
+    runs-on: ubuntu-latest
+    needs: build-images
+    environment:
+      name: railway-demo
+      url: ${{ vars.RAILWAY_DEMO_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway
+        run: railway up --service rag-system
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      - name: Smoke test demo
+        run: |
+          sleep 30
+          curl -sf "${{ vars.RAILWAY_DEMO_URL }}/health" || exit 1
+        env:
+          INGESTION_URL: ${{ vars.RAILWAY_DEMO_URL }}
+
+  # ─── Deploy k8s (v2 Kustomize) ───────────────────────────────────────────────
+  deploy-k8s:
+    name: Deploy Kubernetes (v2)
+    runs-on: ubuntu-latest
+    needs: build-images
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: k8s-prod
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Setup kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Update image tags to commit SHA
+        run: |
+          cd infra/k8s/overlays/prod
+          SHA="${{ github.sha }}"
+          kustomize edit set image \
+            ghcr.io/${{ github.repository_owner }}/rag-ingestion=ghcr.io/${{ github.repository_owner }}/rag-ingestion:${SHA} \
+            ghcr.io/${{ github.repository_owner }}/rag-api=ghcr.io/${{ github.repository_owner }}/rag-api:${SHA} \
+            ghcr.io/${{ github.repository_owner }}/rag-frontend=ghcr.io/${{ github.repository_owner }}/rag-frontend:${SHA}
+
+      - name: Deploy
+        run: |
+          kustomize build infra/k8s/overlays/prod | kubectl apply -f -
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/rag-api     -n rag-system --timeout=300s
+          kubectl rollout status deployment/ingestion   -n rag-system --timeout=300s
+          kubectl rollout status deployment/frontend    -n rag-system --timeout=300s
+
+      - name: Post summary
+        run: |
+          echo "### Déploiement k8s ✅" >> $GITHUB_STEP_SUMMARY
+          echo "SHA: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -n rag-system >> $GITHUB_STEP_SUMMARY

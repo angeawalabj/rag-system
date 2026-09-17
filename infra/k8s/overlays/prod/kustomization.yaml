@@ -1,0 +1,116 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: rag-system
+
+bases:
+  - ../../base
+
+commonLabels:
+  environment: prod
+
+# ─── Ressources additionnelles prod uniquement ────────────────────────────────
+resources:
+  - pdb.yaml      # PodDisruptionBudgets
+  - ingress.yaml  # Ingress nginx
+
+patches:
+
+  # RAG API : 3 replicas min en prod
+  - target:
+      kind: Deployment
+      name: rag-api
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+
+  # Ingestion : 2 replicas
+  - target:
+      kind: Deployment
+      name: ingestion
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+
+  # Frontend : 2 replicas
+  - target:
+      kind: Deployment
+      name: frontend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+
+  # HPA prod : 3–10 replicas
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: rag-api-hpa
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 10
+
+  # Ollama prod : activer le nodeSelector GPU si disponible
+  - target:
+      kind: Deployment
+      name: ollama
+    patch: |-
+      - op: add
+        path: /spec/template/spec/nodeSelector
+        value:
+          gpu: "true"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 8Gi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 16Gi
+
+  # PVC Qdrant : 50Gi en prod
+  - target:
+      kind: StatefulSet
+      name: qdrant
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 50Gi
+
+  # PVC Ollama : 40Gi (plusieurs modèles disponibles)
+  - target:
+      kind: PersistentVolumeClaim
+      name: ollama-models-pvc
+    patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 40Gi
+
+  # PostgreSQL prod : resources augmentées
+  - target:
+      kind: StatefulSet
+      name: postgres
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 250m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "2"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 4Gi
+
+# ─── Images taggées par SHA de commit en prod ─────────────────────────────────
+# Le CI remplace ces valeurs avec le sha du commit :
+# kustomize edit set image ghcr.io/ton-user/rag-api=ghcr.io/ton-user/rag-api:$GITHUB_SHA
+images:
+  - name: ghcr.io/ton-user/rag-ingestion
+    newTag: latest
+  - name: ghcr.io/ton-user/rag-api
+    newTag: latest
+  - name: ghcr.io/ton-user/rag-frontend
+    newTag: latest

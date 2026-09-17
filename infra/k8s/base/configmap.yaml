@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-config
+  namespace: rag-system
+data:
+  # ── Qdrant ─────────────────────────────────────────────────────────────────
+  QDRANT_URL:          "http://qdrant:6333"
+  QDRANT_COLLECTION:   "documents"
+  QDRANT_VECTOR_SIZE:  "768"
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB:   "ragdb"
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  REDIS_URL: "redis://redis:6379/0"
+
+  # ── Ollama ───────────────────────────────────────────────────────────────────
+  OLLAMA_BASE_URL: "http://ollama:11434"
+  EMBED_MODEL:     "nomic-embed-text"
+  LLM_MODEL:       "llama3.2:3b"
+
+  # ── Chunking ─────────────────────────────────────────────────────────────────
+  CHUNK_SIZE:    "512"
+  CHUNK_OVERLAP: "64"
+
+  # ── RAG pipeline ───────────────────────────────────────────────────────────
+  RAG_TOP_K:            "5"
+  RAG_SCORE_THRESHOLD:  "0.70"
+  CACHE_TTL:            "3600"
+
+  # ── Observabilité ──────────────────────────────────────────────────────────
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+  LOG_LEVEL:                    "INFO"

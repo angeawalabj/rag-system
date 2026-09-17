@@ -1,0 +1,112 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: rag-system
+
+# Hérite de la base
+bases:
+  - ../../base
+
+# ─── Labels overlay ───────────────────────────────────────────────────────────
+commonLabels:
+  environment: dev
+
+# ─── Patches dev ──────────────────────────────────────────────────────────────
+# 1 replica partout : économise les ressources en k3s local
+
+patches:
+
+  # Ingestion : 1 replica + log level DEBUG
+  - target:
+      kind: Deployment
+      name: ingestion
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+      - op: replace
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: LOG_LEVEL
+          value: DEBUG
+
+  # RAG API : 1 replica
+  - target:
+      kind: Deployment
+      name: rag-api
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  # Frontend : 1 replica
+  - target:
+      kind: Deployment
+      name: frontend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  # HPA désactivé en dev : min = max = 1
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: rag-api-hpa
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 1
+
+  # Resources réduites pour Qdrant en dev
+  - target:
+      kind: StatefulSet
+      name: qdrant
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 256Mi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1Gi
+
+  # Ollama : resources réduites (pas de GPU en dev local)
+  - target:
+      kind: Deployment
+      name: ollama
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 2Gi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 4Gi
+
+  # PVC Qdrant : 5Gi suffit pour un dev local
+  - target:
+      kind: StatefulSet
+      name: qdrant
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 5Gi
+
+  # PVC Ollama : 15Gi (quelques modèles)
+  - target:
+      kind: PersistentVolumeClaim
+      name: ollama-models-pvc
+    patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 15Gi
+
+# ─── Images taggées dev ───────────────────────────────────────────────────────
+images:
+  - name: ghcr.io/ton-user/rag-ingestion
+    newTag: dev
+  - name: ghcr.io/ton-user/rag-api
+    newTag: dev
+  - name: ghcr.io/ton-user/rag-frontend
+    newTag: dev

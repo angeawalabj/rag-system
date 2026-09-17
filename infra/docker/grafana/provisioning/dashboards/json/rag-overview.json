@@ -1,0 +1,99 @@
+{
+  "title": "RAG — Overview",
+  "uid": "rag-overview",
+  "tags": ["rag", "overview"],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Requêtes RAG / min",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(rag_queries_total[1m])) * 60",
+          "legendFormat": "requêtes/min"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqpm", "color": { "mode": "palette-classic" } } }
+    },
+    {
+      "id": 2,
+      "title": "Latence requête RAG (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, rate(rag_query_duration_seconds_bucket[5m]))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, rate(rag_query_duration_seconds_bucket[5m]))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, rate(rag_query_duration_seconds_bucket[5m]))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "color": { "mode": "palette-classic" } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "p95" }, "properties": [{ "id": "custom.lineStyle", "value": { "dash": [10, 5], "fill": "dash" } }] }
+        ]
+      },
+      "thresholds": { "steps": [{ "value": 8, "color": "red" }] }
+    },
+    {
+      "id": 3,
+      "title": "Taux de cache hit",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(rag_queries_total{cache_hit=\"true\"}[15m])) / sum(rate(rag_queries_total[15m]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0, "max": 1,
+          "thresholds": {
+            "steps": [
+              { "value": 0,   "color": "red" },
+              { "value": 0.1, "color": "yellow" },
+              { "value": 0.3, "color": "green" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Chunks récupérés par requête",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, rate(rag_chunks_retrieved_bucket[5m]))", "legendFormat": "médiane" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 5,
+      "title": "Requêtes par collection",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum by (collection) (rag_queries_total)", "legendFormat": "{{collection}}" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Cache : hit vs miss",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum by (cache_hit) (increase(rag_queries_total[1h]))", "legendFormat": "{{cache_hit}}" }
+      ]
+    }
+  ]
+}

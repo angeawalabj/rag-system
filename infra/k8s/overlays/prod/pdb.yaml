@@ -1,0 +1,30 @@
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: rag-api-pdb
+  namespace: rag-system
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: { app: rag-api }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ingestion-pdb
+  namespace: rag-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: ingestion }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: rag-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: frontend }

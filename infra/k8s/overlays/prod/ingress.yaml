@@ -1,0 +1,44 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rag-ingress
+  namespace: rag-system
+  annotations:
+    kubernetes.io/ingress.class:      nginx
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    # SSE : désactive le buffering pour le streaming token-par-token
+    nginx.ingress.kubernetes.io/proxy-buffering:         "off"
+    nginx.ingress.kubernetes.io/proxy-cache:             "off"
+    # TLS : cert-manager génère le certificat Let's Encrypt
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - hosts:
+        - rag.ton-domaine.com
+      secretName: rag-tls
+  rules:
+    - host: rag.ton-domaine.com
+      http:
+        paths:
+          # Frontend — path par défaut
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port: { number: 3000 }
+          # RAG API — proxy /api/rag/* vers le service FastAPI
+          - path: /api/rag
+            pathType: Prefix
+            backend:
+              service:
+                name: rag-api
+                port: { number: 8000 }
+          # Ingestion API
+          - path: /api/ingest
+            pathType: Prefix
+            backend:
+              service:
+                name: ingestion
+                port: { number: 8001 }
