@@ -3,9 +3,12 @@
 # CI : lint + tests unitaires (Ollama mocké)
 # CD : build images Docker, push GHCR, deploy Railway (v1) + k8s (v2)
 #
-# Les jobs deploy-railway et deploy-k8s ne s'exécutent que si les secrets
-# correspondants (RAILWAY_TOKEN, KUBECONFIG) sont configurés sur le repo —
-# absents par défaut, ils sont sautés plutôt que d'échouer en rouge.
+# Les jobs deploy-railway et deploy-k8s sont sautés tant que les variables de
+# repo RAILWAY_DEPLOY_ENABLED / K8S_DEPLOY_ENABLED ne sont pas mises à "true"
+# (Settings > Secrets and variables > Actions > Variables) — à activer une
+# fois RAILWAY_TOKEN / KUBECONFIG réellement configurés en secrets.
+# (Le contexte `secrets` n'est pas utilisable dans un `if:` de job, d'où
+# l'usage de `vars` ici plutôt qu'un test direct sur les secrets.)
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: CI/CD
@@ -137,7 +140,7 @@ jobs:
     name: Deploy Railway (v1 demo)
     runs-on: ubuntu-latest
     needs: build-images
-    if: ${{ secrets.RAILWAY_TOKEN != '' }}
+    if: ${{ vars.RAILWAY_DEPLOY_ENABLED == 'true' }}
     environment:
       name: railway-demo
       url: ${{ vars.RAILWAY_DEMO_URL }}
@@ -165,7 +168,7 @@ jobs:
     name: Deploy Kubernetes (v2)
     runs-on: ubuntu-latest
     needs: build-images
-    if: ${{ github.ref == 'refs/heads/main' && secrets.KUBECONFIG != '' }}
+    if: ${{ github.ref == 'refs/heads/main' && vars.K8S_DEPLOY_ENABLED == 'true' }}
     environment:
       name: k8s-prod
 
