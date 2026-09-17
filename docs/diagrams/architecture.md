@@ -32,7 +32,7 @@ C4Container
 
     Person(user, "Utilisateur")
 
-    Container(frontend, "Frontend", "Next.js 14", "Chat UI, upload docs,\naffichage des sources")
+    Container(frontend, "Frontend", "Next.js 16", "Chat UI, upload docs,\naffichage des sources")
     Container(api, "RAG API", "FastAPI / Python", "Pipeline retrieve →\naugment → generate")
     Container(ingestion, "Ingestion Service", "Python / RQ Worker", "Chunking, embedding,\nindexation Qdrant")
 

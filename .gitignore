@@ -12,6 +12,8 @@ node_modules/
 .next/
 *.tsbuildinfo
 npm-debug.log*
+services/frontend/AGENTS.md
+services/frontend/CLAUDE.md
 
 # Env / secrets
 .env

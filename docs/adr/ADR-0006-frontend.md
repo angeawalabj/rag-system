@@ -20,7 +20,7 @@ Contrainte : pas de framework CSS lourd — le bundle doit rester < 200 KB gzipp
 
 | Couche | Choix | Raison |
 |--------|-------|--------|
-| Framework | Next.js 14 App Router | Server Components, streaming natif, `use client` granulaire |
+| Framework | Next.js 16 App Router | Server Components, streaming natif, `use client` granulaire |
 | Styling | Tailwind CSS | Pas de runtime CSS, classes utilitaires, bundle minimal |
 | State | `useState` + `useReducer` | Pas de Redux — l'état du chat est local et simple |
 | SSE client | `fetch` + `ReadableStream` | Pas de lib externe, contrôle total sur le parsing |

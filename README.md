@@ -10,7 +10,7 @@ Ce projet est une démo/portfolio illustrant une architecture RAG de bout en bou
 
 | Service | Technologie | Rôle |
 |---|---|---|
-| `services/frontend` | Next.js 14.2.5 (App Router), React 18, TypeScript, Tailwind CSS | Interface de chat : pose de questions, affichage des réponses en streaming token par token, panneau de dépôt de documents (drag & drop) avec suivi de statut d'ingestion |
+| `services/frontend` | Next.js 16 (App Router), React 18, TypeScript, Tailwind CSS | Interface de chat : pose de questions, affichage des réponses en streaming token par token, panneau de dépôt de documents (drag & drop) avec suivi de statut d'ingestion |
 | `services/api` | FastAPI, `sse-starlette` | Reçoit une question, l'embed via Ollama, recherche les chunks pertinents dans Qdrant (`AsyncQdrantClient`), construit un prompt augmenté et streame la réponse du LLM en Server-Sent Events ; cache les réponses dans Redis |
 | `services/ingestion` | FastAPI, `python-multipart`, RQ (Redis Queue) | Reçoit un upload de document, le découpe en chunks, les embed via Ollama et les indexe dans Qdrant ; traitement asynchrone via une file RQ, statut persisté en PostgreSQL |
 
@@ -32,7 +32,7 @@ Ce projet est une démo/portfolio illustrant une architecture RAG de bout en bou
 ```
 rag-system/
 ├── services/
-│   ├── frontend/            # Next.js 14 — interface de chat (App Router)
+│   ├── frontend/            # Next.js 16 — interface de chat (App Router)
 │   │   ├── app/              # routes (page.tsx, chat/)
 │   │   ├── components/       # ChatWindow, MessageBubble, QueryInput, SourceCard, UploadPanel
 │   │   └── lib/               # client API (fetch SSE, upload, polling)
