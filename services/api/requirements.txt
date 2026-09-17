@@ -22,6 +22,8 @@ opentelemetry-sdk==1.24.0
 opentelemetry-exporter-otlp-proto-grpc==1.24.0
 opentelemetry-instrumentation-fastapi==0.45b0
 opentelemetry-instrumentation-httpx==0.45b0
+setuptools                  # pkg_resources, requis par opentelemetry-instrumentation
+                             # mais pas garanti présent dans un venv (absent par défaut sur Debian/Kali)
 prometheus-client==0.20.0
 
 # ─── Config + utils ─────────────────────────────────────────────────────────
