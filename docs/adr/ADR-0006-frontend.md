@@ -4,7 +4,6 @@
 |-------------|-------------------------------------|
 | Statut      | **Accepté**                         |
 | Date        | 2026-06-30                          |
-| Décideurs   | équipe projet                       |
 | Tags        | frontend, next.js, sse, ux          |
 
 ## Contexte

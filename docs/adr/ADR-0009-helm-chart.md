@@ -4,7 +4,6 @@
 |-------------|--------------------------------------|
 | Statut      | **Accepté**                          |
 | Date        | 2026-06-30                           |
-| Décideurs   | équipe projet                        |
 | Tags        | helm, k8s, packaging, devops         |
 
 ## Contexte

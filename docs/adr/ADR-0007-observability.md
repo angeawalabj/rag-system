@@ -4,12 +4,11 @@
 |-------------|--------------------------------------|
 | Statut      | **Accepté**                          |
 | Date        | 2026-06-30                           |
-| Décideurs   | équipe projet                        |
 | Tags        | observabilité, grafana, prometheus, slo |
 
 ## Contexte
 
-Les métriques Prometheus existent depuis la semaine 1-2 (`rag_ingestion_*`, `rag_queries_*`, `rag_chunks_*`) mais ne sont pas encore visualisées ni alertées. Cet ADR fixe :
+Les métriques Prometheus sont exposées (`rag_ingestion_*`, `rag_queries_*`, `rag_chunks_*`) mais pas encore visualisées ni alertées. Cet ADR fixe :
 1. Les SLO (Service Level Objectives) du système
 2. La structure des dashboards Grafana
 3. Les règles d'alerte Prometheus
@@ -62,4 +61,4 @@ Les métriques Prometheus existent depuis la semaine 1-2 (`rag_ingestion_*`, `ra
 - **Positif** : Les SLO donnent un langage commun pour juger si le système "va bien".
 - **Positif** : Les dashboards sont provisionnés automatiquement (`grafana/provisioning/dashboards/`) — zéro configuration manuelle au démarrage.
 - **Négatif** : Pas d'Alertmanager en v1 (alertes visibles dans Prometheus UI uniquement) — à ajouter en v2 avec notification Slack/email.
-- **Révision** : Réévaluer les seuils SLO après 2 semaines d'usage réel — les valeurs actuelles sont des estimations basées sur du CPU inference.
+- **Révision** : Réévaluer les seuils SLO après une période d'usage réel — les valeurs actuelles sont des estimations basées sur du CPU inference.

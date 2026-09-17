@@ -4,14 +4,13 @@
 |-------------|-------------------------------------|
 | Statut      | **Accepté**                         |
 | Date        | 2026-06-29                          |
-| Décideurs   | équipe projet                       |
 | Tags        | infra, devops, k8s, docker, iac     |
 
 ## Contexte
 
 Le projet doit être déployable à deux niveaux de maturité :
 
-- **v1 — Demo** : `docker compose up` sur n'importe quelle machine, zéro prérequis cloud, livrable en semaine 1.
+- **v1 — Demo** : `docker compose up` sur n'importe quelle machine, zéro prérequis cloud.
 - **v2 — Production-grade** : Kubernetes avec Helm charts, namespaces, RBAC, HPA, PodDisruptionBudget, pour un portfolio d'ingénierie complet.
 
 La contrainte est que les deux versions doivent partager **la même configuration applicative** (variables d'environnement, noms de services, ports) pour éviter deux codebases divergentes.
@@ -78,38 +77,22 @@ infra/
 │       ├── dev/                    ← k3s local, 1 replica, debug
 │       └── prod/                   ← cloud, HPA, PDB, TLS
 └── helm/
-    └── rag-system/                 ← chart Helm v2 (semaine 4)
+    └── rag-system/                 ← chart Helm v2, packaging final
         ├── Chart.yaml
         ├── values.yaml
         └── templates/
 ```
 
-## Diagramme de progression v1 → v2
+## Ordre de mise en place
 
-```mermaid
-timeline
-    title Progression déploiement RAG
-    section Semaine 1
-        Docker Compose : Services de base
-        : Qdrant + PostgreSQL + Redis + Ollama
-        : Ingestion service opérationnel
-    section Semaine 2
-        Docker Compose : Stack complète
-        : RAG API + Frontend + Observabilité
-        : Demo déployée sur Railway
-    section Semaine 3
-        Kustomize base : Manifests k8s de base
-        : Namespace, ConfigMap, Deployments
-        : Tests sur k3s local
-    section Semaine 4
-        Helm chart : Chart complet
-        : values.yaml, HPA, PDB, Ingress
-        : Overlays dev/prod
-```
+Docker Compose (v1) d'abord, car il ne demande aucun accès cluster et permet
+d'itérer vite sur l'application. Kustomize ensuite pour les manifests k8s de
+base (dev/prod). Helm en dernier, une fois la structure Kustomize stabilisée,
+pour offrir un chart installable en une commande (voir ADR-0008 et ADR-0009).
 
 ## Conséquences
 
-- **Positif** : La v1 est livrable en 1 semaine sans connaissance k8s.
+- **Positif** : La v1 ne demande aucune connaissance k8s pour être lancée.
 - **Positif** : La v2 réutilise 100% du code applicatif — seule l'infra change.
 - **Négatif** : Maintenir deux systèmes de déploiement en parallèle pendant la transition.
 - **Décision** : Docker Compose reste la référence de développement même en v2 — k8s est réservé au staging/prod.

@@ -4,7 +4,6 @@
 |-------------|-------------------------------------|
 | Statut      | **Accepté**                         |
 | Date        | 2026-06-30                          |
-| Décideurs   | équipe projet                       |
 | Tags        | rag, api, streaming, cache, prompt  |
 
 ## Contexte

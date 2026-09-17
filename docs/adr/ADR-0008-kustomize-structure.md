@@ -4,12 +4,11 @@
 |-------------|--------------------------------------|
 | Statut      | **Accepté**                          |
 | Date        | 2026-06-30                           |
-| Décideurs   | équipe projet                        |
 | Tags        | k8s, kustomize, devops, infra        |
 
 ## Contexte
 
-La v2 Kubernetes doit éviter la duplication YAML entre environnements (dev local k3s, prod cloud). Kustomize est retenu plutôt que Helm pour cette première itération k8s — Helm sera ajouté en semaine 4 pour le packaging final, mais Kustomize sert de base testable immédiatement, sans templating complexe.
+La v2 Kubernetes doit éviter la duplication YAML entre environnements (dev local k3s, prod cloud). Kustomize est retenu plutôt que Helm pour cette première itération k8s — Helm sera ajouté ensuite pour le packaging final (voir ADR-0009), mais Kustomize sert de base testable immédiatement, sans templating complexe.
 
 ## Décision
 
@@ -23,7 +22,7 @@ La v2 Kubernetes doit éviter la duplication YAML entre environnements (dev loca
 | Distribution publique       | ❌ Pas de packaging         | ✅ Chart partageable          |
 | Intégré à kubectl           | ✅ Natif depuis 1.14         | ❌ Binaire séparé             |
 
-Kustomize est utilisé pour les manifests de base (semaine 3, dev/prod). Helm est ajouté en semaine 4 uniquement pour offrir un chart installable en une commande (`helm install rag-system ./helm/rag-system`).
+Kustomize est utilisé pour les manifests de base (dev/prod). Helm est ajouté ensuite, uniquement pour offrir un chart installable en une commande (`helm install rag-system ./helm/rag-system`).
 
 ### Structure retenue
 
@@ -74,5 +73,5 @@ Les vrais secrets (mots de passe PostgreSQL, etc.) ne sont **jamais** commités.
 
 - **Positif** : `kubectl apply -k infra/k8s/overlays/dev` déploie l'environnement complet en une commande.
 - **Positif** : Diff propre entre dev et prod — visible directement dans les fichiers de patch.
-- **Négatif** : Moins de réutilisabilité externe qu'un chart Helm — adressé en semaine 4.
+- **Négatif** : Moins de réutilisabilité externe qu'un chart Helm — adressé par le chart Helm (ADR-0009).
 - **Point de vigilance** : Ollama nécessite potentiellement un `nodeSelector` GPU en prod — non géré par Kustomize seul, ajouté via patch JSON6902 dans l'overlay prod.

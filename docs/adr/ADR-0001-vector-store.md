@@ -4,7 +4,6 @@
 |-------------|---------------------------------|
 | Statut      | **Accepté**                     |
 | Date        | 2026-06-29                      |
-| Décideurs   | équipe projet                   |
 | Tags        | storage, vector, infra          |
 
 ## Contexte
